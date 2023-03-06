@@ -5,7 +5,6 @@ geometry: margin=1cm
 output: pdf_document
 documentclass: extarticle
 fontsize: 17pt
-mathjax: yes
 math: true
 ---
 
@@ -405,10 +404,10 @@ fingerprint width to $16$ bits.
 
 ## On Appending Data
 
-So far, we store our data as one long, consecutive stream of bytes, writing
-data for successive buckets back to back. This layout makes it impossible to
-append additional files to the index structure, as there is simply no space
-between buckets to accomodate for the newly added fingerprints.
+Initially, we modelled the bucket data as one long, consecutive stream of
+bytes, writing data for successive buckets back to back. This layout makes it
+impossible to append additional files to the index structure, as there is
+simply no space between buckets to accomodate for the newly added fingerprints.
 
 But this is not really necessary: buckets are always read independently, so it
 makes perfect sense to store the data for individual buckets in separate blobs
@@ -432,103 +431,57 @@ probably need some sort of write-ahead log of new index data, likely in the
 form of appending the original cuckoo filter data as a per-partition blob, and
 a way to restore that WAL on crash recovery.
 
+## Prior Art
+
+After explaining my idea to a coworker, he pointed me to [COBS][cobs] - compact
+bit-sliced signature index. The authors are using a very similar approach, but
+there's a few noteworthy differences.
+
+COBS uses bloom filters in the context of finding DNA sequences in a large body
+of samples(?). A query typically involves a variable-sized subsequence of DNA,
+and indexing happens on tri-gram(?) level. Since the actual search involves far
+longer sequences, a search query is translated into a conjunction of many
+trigrams(?). This implies that the false positive rate of the index itself
+doesn't have to be very low, as false positives get weeded out via the
+conjunction of many search terms. In such a scenario, you can get away with one
+(or two?) hash functions. This wouldn't be feasible in our scenario: we assume
+that a query is searching for a single value of arbitrary type. Using bloom
+filters for our partition index would lead to either high false positive rates
+or a large number of hash functions (you need $16$ hash functions to approach a
+false positive rate of $1$ in $20k$), which counters our goal to reduce the
+number of I/O operations.
+
+To save space and incorporate documents (partition in our terminology) of
+variable size, bloom filters are not aligned to one specific length. Instead,
+bloom filters are grouped together with other, similarly-sized documents,
+resulting in multiple aligned "blocks" of different sizes. This further increases
+the number of I/O operation, because you'd have to perform $k$ I/O operations per
+group ($k$ is the number of hash functions in the bloom filter). We avoid doing
+this by enabling a variable bucket size per cuckoo filter, so there's only one
+big block of buckets, but false positive rates and occupancy vary for partitions
+depending on their size.
+
+The paper also introduces "ClaBS", which does away with the "compact"
+representation described in the previous paragraph, and is pretty close to the
+partition index described in this blog post. In the benchmark section, they
+compare _ClaBS_ and _COBS_ with other approaches, but all measurements are done
+in-memory, so the theoretical I/O advantage of _ClaBS_ over _COBS_ can not
+materialize, and the latter wins the battle in all categories.
+
+Writing COBS is even harder than writing our partition index: appending a single
+partition requires adding a single bit to all slices, which is even worse than
+appending several fingerprints of $16$ bits each to all buckets.
+
+[cobs]: https://arxiv.org/abs/1905.09624
+
+<!--
+Timo Bingmann and Phelim Bradley and Florian Gauger and Zamin Iqbal. 2019. "{COBS}: a Compact Bit-Sliced Signature Index". *Springer*. 
+
+Narayan, N., A. Paul, S. Mulitza, and M. Schulz. 2010. “Trends in
+Coastal Upwelling Intensity During the Late 20th Century.” *Ocean
+Science* 6 (3): 815–23. <https://doi.org/10.5194/os-6-815-2010>
+-->
+
 ## Conclusion
 
 
-
-
-
-## Resterampe
-
-- adding data is hard
-	- split off the data representation into one file or blob per bucket
-	- new picture, accordingly
-
-### Partitioning 
-
-By grouping data into a directory tree, where the nested path structure is
-organized according to some columns of the data, you can reduce the search
-space by only having to consider some parts of the directory tree. This
-strategy is called [partitioning][partitioning], and works great in case
-a query search condition matches the primary partitioning column. However,
-it has limitations:
-
-1. Adding too many partition columns yields very small partitions, losing the
-	 benefit of the columnar representation. You have to make a choice on the
-	 most helpful partitioning colums beforehand, and it's not realistic to serve
-	 more than two, maybe three different types of queries. Changing the partitioning
-	 columns later may require a complete rewrite of all your data.
-
-2. Partitions should yield approximately similar-sized partitions, otherwise
-   you may end up with [skewed data][dataskew].
-
-3. Your ingestion scheme may already dictate your top-level partition column:
-   when you're ingestion network telemetry data near real-time, it may not be
-	 possible to partition it into the source ip address, because that would mean
-	 you'd be frequently appending small amounts of data to all partitions, creating
-	 loads of small files. In my experience, event-based data is commonly ingested
-	 with some date- or time-related partitioning column, which makes sense for
-	 ingestion, supports time-ranged queries well and eases data governance tasks
-	 (e.g., GDPR-related removal of data after a certain time).
-
-[partitioning]: https://medium.com/nerd-for-tech/hive-data-organization-partitioning-clustering-3e14ef6ab121
-[dataskew]: https://selectfrom.dev/data-skew-in-apache-spark-f5eb194a7e2
-
-### Parquet File and Row Group Column Statistics
-
-[Parquet][parquet] does not only store your raw data, but also includes _column
-statistics_ in its [footer][footer] to further reduce the amount of data that
-needs to be scanned. The data includes min / max values for each column, both
-for the entire file as well as each row group. If your query contains an
-expression that is out of the min/max range, the entire file or select row group
-can immediately be discarded. This typically works well if data in your parquet
-is sorted along the relevant column, but it always incurs the initial effort to
-read and parse the file metadata. If your query can not leverage your
-partitioning scheme, you'll still need to access all files.
-
-[footer]: http://cloudsqale.com/2021/01/15/parquet-1-x-file-format-footer-content/
-
-## Performance Analysis: Theory
-
-- size to read: 2x(sum over all partitions p: slots(p)) * 2 (bytes)
-- 2 I/O operations
-- false positive rate: give for a single partition
-  - note that large partitions have more slots, so they have higher fp-rate
-	- number of buckets: more is better, up to a point (-> fill rate)
-- 
-
-## Data: Benchmarks
-
-describe dataset
-
-- generate partitions: don't actually store partitions, just data to reconstruct them 
-	- we only benchmark the index, not actually reading data
-- things to play with:
-	- number of partitions
-	- number of distinct values per partition
-	- number of buckets
-	- number of threads for concurrent read
-tracked valus
-- (tbd!) fill rate
-- (tbd!) fp rate
-- throughput: queries per second
-- throughput: MB / s
-- avg latency per query + std dev
-- median latency per query + MAD
-
-## Random thoughts for later
-
-- merge and append
-- use for other types of data: indexing text documents / source code / ...
-- "partition" can be a parquet file
-	- a row group in a parquet file
-	- a server that has your data
-	- a directory with a bunch of csv files
-	- ... any other good option?
-	
-
-### Random stuff [tbd]
-
-> Create a short paragraph explaining the advantages of columnar data storage
-
-> Columnar data storage has several advantages over traditional row-based storage. First, it allows for efficient compression of data, as each column can be compressed separately based on its data type and distribution, resulting in smaller storage requirements and faster data retrieval. Second, columnar storage allows for better query performance, as it only reads the columns that are required for a given query, reducing I/O operations and improving response times. Third, columnar storage facilitates parallel processing, as different columns can be processed independently, enabling faster data processing and analysis. Finally, columnar storage is more flexible and scalable, as new columns can be added without affecting the existing data structure, making it easier to accommodate changes in data requirements over time.
