@@ -121,7 +121,8 @@ values in the indexed column.
 [cuckoo-paper]: https://www.cs.cmu.edu/~binfan/papers/conext14_cuckoofilter.pdf
 [cuckoo-brilliant]: https://brilliant.org/wiki/cuckoo-filter/
 
-![A single Cuckoo Filter with buckets for a value `x`](../../images/partition-index-intro/cuckoo_basic.png)
+![A single Cuckoo Filter with two buckets for a value `x`](../../images/partition-index-intro/cuckoo_basic.png)
+_A single Cuckoo Filter with two buckets for a value `x`_
 
 In the example above, we sketched a Cuckoo Filter with six buckets and two slots,
 providing a capacity for 12 entries. Each entry stores the fingerprint of a single value,
@@ -143,6 +144,7 @@ According to the [paper][cuckoo-paper], bucket sizes of `b = 1, 2, 4` and `8`
 lead to expected occupancies of `50%, 84%, 95%`, and `98` respectively.
 
 ![Number of buckets impact $h_1(x)$ and $h_2(x)$](../../images/partition-index-intro/cuckoo_multiple_unaligned.png)
+_Multiple Cuckoo Filters of different size access different buckets for the same value_
 
 Creating an optimal Cuckoo Filter for for several sets of values of different
 sizes leads to a different choice in the number of buckets in each filter, as
@@ -163,6 +165,7 @@ To overcome the irregularity of the data layout, we can try to keep the number
 of buckets per filter constant, which leads to a much more regular structure:
 
 ![Cuckoo Filters with aligned bucket sizes](../../images/partition-index-intro/cuckoo_multiple_aligned.png)
+_Cuckoo Filters with aligned bucket sizes_
 
 When all individual filters have the same number of buckets, a few things
 change: 
@@ -195,7 +198,8 @@ is in only two places, each containing a long stream of fingerprints
 representing the data of a single bucket, but for all files or partitions at
 once:
 
-![Transposing the matrix: co-locating bucket data](../../images/partition-index-intro/cuckoo_aligned_transposed.png)
+![Beautifully aligned access pattern and memory layout](../../images/partition-index-intro/cuckoo_aligned_transposed.png)
+_Beautifully aligned access pattern and memory layout_
 
 ### Conclusion
 
@@ -326,7 +330,8 @@ with `100k` entries per partition, one million partitions, and a varying number
 of buckets ranging from `11000` to `68000`. The resulting buckets contain 10
 million to two million fingerprints, respectively.
 
-![Bucket Size vs Latency](../../images/partition-index-intro/bucket_size_vs_latency.png)
+![Impact of changing buckets for query performance](../../images/partition-index-intro/bucket_size_vs_latency.png)
+_Impact of changing buckets for query performance_
 
 The linear relationship between bucket size and query latency is visible in the
 plot, even though there seems to be some noise. The number of buckets is
@@ -341,9 +346,12 @@ number of buckets further when most partitions already have an individual
 bucket size of `2` or `3`, as the disadvantages of having too many buckets
 start to outweigh the gains.
 
-It's also possible to increase the partition size while keeping the performance
+> It's also possible to increase the partition size while keeping the performance
 constant, if the number of buckets is increased alongside the values in each
-partition.
+partition. This would allow replicating the query latency of `20ms` even for
+larger index sizes, e.g. one trillion elements distributed over one million
+partitions.
+{: .prompt-tip}
 
 ### Occupancy {#tpxoccupancy}
 
@@ -351,7 +359,8 @@ To see the effect of the number of buckets on the occupancy of the index, we
 different indexes for a single partition with `100k` elements, using buckets
 from `[100 .. 100k)` in steps of `500`.
 
-![Buckets vs Occupancy](../../images/partition-index-intro/buckets_vs_occupancy.png)
+![Number of buckets vs occupancy](../../images/partition-index-intro/buckets_vs_occupancy.png)
+_Number of buckets vs occupancy_
 
 What's happening here is that incrementing the number of buckets makes
 occupancy worse until a point where the partition data can fit in one less
@@ -383,7 +392,8 @@ throughput (MB/s of data processed).
 We expect the latency to stay constant (each thread does the same work, after
 all), and the throughput to scale linearly with the number of threads.
 
-![Concurrent Query Execution: Where's my scale?](../../images/partition-index-intro/multi_threaded_behavior.png)
+![Concurrent Query Execution: Not scaling as expected](../../images/partition-index-intro/multi_threaded_behavior.png)
+_Concurrent Query Execution: Where's my scale?_
 
 This does not look good - query latency is not constant when executing multiple
 queries at the same time. To understand what's going on, let's look at
@@ -398,6 +408,7 @@ the same experiment with a reduced number of buckets, thereby increasing the
 bucket size:
 
 ![Concurrent Query Execution: Less but larger buckets](../../images/partition-index-intro/multi_threaded_behavior_less_buckets.png)
+_Concurrent Query Execution: larger buckets increase throughput_
 
 Results are similar: single-threaded throughput is somewhat increased, as well
 as the overall disk throughput at about 2GB/s. To make sure we're actually
@@ -405,7 +416,8 @@ approaching the limits of the disk, we run one last experiment with a much
 smaller index size - reducing the number of partitions to `10k`, thereby
 enabling it to serve all data from the file system cache:
 
-![Concurrent Query Execution: Less but larger buckets](../../images/partition-index-intro/multi_threaded_behavior_small.png)
+![Concurrent Query Execution: much higher throughput when data fits in the file cache](../../images/partition-index-intro/multi_threaded_behavior_small.png)
+_Concurrent Query Execution: much higher throughput when data fits in the file cache_
 
 This looks much more reasonable. Throughput is scaling almost linearly with the
 number of threads, and the slowly increasing latency can be entirely explained
