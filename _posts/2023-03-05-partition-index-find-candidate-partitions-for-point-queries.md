@@ -1,11 +1,13 @@
 ---
 title: "Efficiently finding candidate partitions for point queries"
-author: Thomas Peiselt
+author: dispanser
 geometry: margin=1cm
 output: pdf_document
 documentclass: extarticle
 fontsize: 17pt
 math: true
+categories: [databases, query engines]
+tags: [index, bloom filter]
 ---
 
 # Efficient Execution of Point Queries in Large Tables
@@ -296,13 +298,12 @@ and the bucket size was configured to perfectly match the partition size,
 leading to buckets that are as small as possible. We'll look into the effect of
 varying the number of buckets in the next section.
 
-{:.notice} 
-The first experimient with `100k` partitions is 4x as fast as the next one, 
+> The first experimient with `100k` partitions is 4x as fast as the next one, 
 despite only a factor of 2x in the index size: I'm attributing this to the 
 file system cache, which is able to keep the entire index cached for the first
 run, but doesn't quite fit the larger index sizes - and its effect is
 successively getting smaller the larger the data set.
-{: .notice} 
+{: .prompt-info} 
 
 Let's look into how varying the number of buckets effects query performance.
 
