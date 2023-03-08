@@ -423,6 +423,7 @@ where `b` is the. bucket size, and `fb` is the number of bits of the
 fingerprints.
 
 ![False positive rate](../../images/partition-index-intro/fp_rates.png)
+_False positive rate_
 
 I was initially surprised by the fact that the actual false positive rate was
 _below_ the theoretical one, but later realized that the formula ignores vacant
@@ -516,7 +517,7 @@ appending several fingerprints of `16` bits each to all buckets.
 If you made it that far - thank you very much. This was my first "personal"
 blog post, and it is a lot longer than initially anticipated. It also took a
 lot longer to write, mostly because when actually writing down your ideas you
-get a lot of back-and-forth with yourself, and it's actually hard to stop.
+get a lot of back-and-forth with yourself, and it's pretty hard to stop.
 
 
 As for the approach itself, I'm interested in feedback - maybe something very

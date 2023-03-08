@@ -1,0 +1,7 @@
+# https://numtide.github.io/devshell
+# [[commands]]
+# package = "devshell.hello"
+
+[devshell]
+packages = [ "texlive.combined.scheme-full", "pandoc", "jekyll", "ruby", "zlib", "ncurses", "readline", "libyaml" ]
+
