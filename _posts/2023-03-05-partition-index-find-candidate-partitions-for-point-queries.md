@@ -181,7 +181,7 @@ change:
 - $h_1(x)$ and $h_2(x)$ point to the same two buckets for all filters
 - to make room for the additional elements in the second filter, we increased
   its bucket size
-- we give up on some optimality in both occupancy:
+- we give up on some optimality in occupancy:
   - filter 2 has 18 instead of 12 entries overall
   - filter 3 has 12 instead of 10 entries overall
 - false positive rate for filter 2 has increased alongside bucket size
