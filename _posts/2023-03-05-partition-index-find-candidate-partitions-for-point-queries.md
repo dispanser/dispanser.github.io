@@ -101,10 +101,18 @@ structure that allows us to perform approximate membership queries for a single
 value on many sets simultaneously, while keeping the index data on disk and
 avoiding a separate read operation for each individual set.
 
+> The motivational examples start from a set of parquet files. When the index
+is stored independently from the indexed data, it is not necessary to limit
+ourselves to indexing a single column of a parquet file, but _any chunk or
+subset of a table_ that can be sensibly processed separately. This could be
+other file types (`avro`, `orc`, `csv`, ...), or an individual row group in a
+parquet file. We will from now on refer to identifying candidate partitions.
+{: .prompt-info}
+
 ### Cuckoo Filters: An Alternative to Bloom Filters
 
 [Cuckoo Filters][cuckoo-wiki] (see [paper][cuckoo-paper]) provide a useful
-improvement over bloom filters for our use case, as theyonly require two read
+improvement over bloom filters for our use case, as they only require two read
 operations for a single-value lookup - bloom filters require a number of
 lookups that depends on the desired false-positive rate (you can try out a
 bloom filter calculator over [here][hurst-bloom]). There's a also an
