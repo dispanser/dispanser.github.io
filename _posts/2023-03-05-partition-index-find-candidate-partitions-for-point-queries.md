@@ -14,25 +14,25 @@ tags: [index, bloom filter]
 
 ## Summary
 
-In this blog post, we present a fast, efficient way to facilitate point queries
-on large parquet-based tables consisting of millions of files. By utilizing
-aligned arrays of Cuckoo Filters, we aim to identify files that likely have the
-data you're looking for, using only two read operations, while keeping all your
-index data on disk.
+In this blog post, we present an fast, efficient way to accelerate point
+queries on large Parquet-based tables consisting of millions of files. By
+utilizing aligned arrays of Cuckoo Filters, we aim to identify files that
+likely have the data you're looking for, using only two read operations, while
+keeping all your index data on disk.
 
 Depending on the latency of the underlying storage layer, we are able to
 identify relevant data files in milliseconds, enabling a query engine to only
 consider a small fraction of the original data, speeding up
 needle-in-a-haystack queries by orders of magnitudes.
 
-We provide an experimental implementation to validate our approach, and run
-benchmarks on artificial datasetes of various sizes and configurations.
+We validate our approach with an experimental implementation, and benchmarks on
+artificial datasets of various sizes and configurations.
 
 ## Motivation
 
 Table formats like [Delta Lake][delta-lake] or [Apache Iceberg][apache-iceberg]
 provide efficient storage for large amounts of data leveraging columnar file
-formats like [parquet][parquet], and are optimized for analytical queries and
+formats like [Parquet][parquet], and are optimized for analytical queries and
 batch-processing of data.
 
 Due to efficient compression techniques, storing data in a columnar format can
@@ -42,15 +42,16 @@ would otherwise be infeasible. This includes network telemetry, structured
 service logs, or similar event-centric data that comes in large quantities.
 
 Unfortunately, this type of data is often queried in ways that would be better
-served by a database, backed by an index: How do you find all the logs related
-to a specific request ID, or all the hosts in your network that previously
-established a connection to a newly identified botnet? In a sea of parquet
-files, without additional information, the only option is a full table scan.
-There's a variety of mitigations and workarounds, like data partitioning, or
-leveraging column statistics at the file level, but this typically involves
-optimizing the data layout for a few specific types of queries from the get-go,
-and is not always practical if data is used for more than one purpose or
-queried on multiple columns.
+served by a database, backed by a secondary index: How do you find all the logs
+related to a specific request ID, or all hosts in your network that established
+a connection to a newly identified botnet?
+
+In a sea of Parquet files, without additional information, the only option is a
+full table scan. There's a variety of mitigations and workarounds, like data
+partitioning, or leveraging column statistics at the file level, but this
+typically involves optimizing the data layout for a few specific types of
+queries from the get-go, and is not always practical if data is used for more
+than one purpose or queried on multiple columns. Can we do better?
 
 [parquet]: https://parquet.apache.org/
 [delta-lake]: https://delta.io/
@@ -60,30 +61,30 @@ queried on multiple columns.
 
 [Bloom filters][wiki-bloom] and [related datastructures][wiki-amq] are a great
 fit for this type of problem: a very compact representation of a set of values
-(e.g., all values of one column in a parquet file or other chunk of a table),
-that allows to approximately check a value to either _maybe_ exist in a set or
+(e.g., all values of one column in a Parquet file or other chunk of a table),
+that allows for approximately checking a value to either _maybe_ exist in a set or
 _definitely not_ exist in the set.
 
-By creating such a filter for every parquet file, it is possible to trim down
+By creating such a filter for every Parquet file, it is possible to trim down
 the number of files to read by first consulting all filters. Databricks
 provides this [feature][databricks-bloom] by maintaining a separate index file
-per parquet file, and can skip reading irrelevant files alltogether. A similar
-approach is specified as [part][parquet-bloom] of the parquet format, where
-bloom index pages are defined as part of the row group metadata of each parquet
-file. However, both approaches are tied to the parquet format. Since they
+per Parquet file, and can skip reading irrelevant files all together. A similar
+approach is specified as [part][parquet-bloom] of the Parquet format, where
+bloom index pages are defined as part of the row group metadata of each Parquet
+file. However, both approaches are tied to the Parquet format. Since they
 maintain the index data in a one-to-one relationship with the associated
-parquet file, they require making one read request for each candidate file to
+Parquet file, they require making one read request for each candidate file to
 check the filter, leading to excessive I/O if the initial set of candidate
 files is large.
 
-We can work around the I/O burden by keeping the bloom filters in memory. The
+We can work around the I/O burden by keeping the Bloom filters in memory. The
 downside here is that the memory requirements for your index grow with the
-amount of data you want to store; a single bloom filter for 1 million elements
+amount of data you want to store; a single Bloom filter for 1 million elements
 can grow over 1.7MB even for [a modest false positive rate of
 `0.1%`][hurst-bloom]. With one million files, that's almost 2TB of index data
 to keep in memory, which also has to be pre-loaded before a query can even
 start executing. Even if there is sufficient memory available, evaluating a
-million independent bloom filters translates to millions of single-bit reads on
+million independent Bloom filters translates to millions of single-bit reads on
 more or less random memory locations, which is not nearly as fast as you would
 come to expect from "in-memory" operations.
 
@@ -101,29 +102,28 @@ structure that allows us to perform approximate membership queries for a single
 value on many sets simultaneously, while keeping the index data on disk and
 avoiding a separate read operation for each individual set.
 
-> The motivational examples start from a set of parquet files. When the index
+> The motivational examples start from a set of Parquet files. When the index
 is stored independently from the indexed data, it is not necessary to limit
-ourselves to indexing a single column of a parquet file, but _any chunk or
+ourselves to indexing a single column of a Parquet file, but _any chunk or
 subset of a table_ that can be sensibly processed separately. This could be
 other file types (`avro`, `orc`, `csv`, ...), or an individual row group in a
-parquet file. We will from now on refer to identifying candidate partitions.
+Parquet file. We will from now on refer to identifying candidate partitions.
 {: .prompt-info}
 
 ### Cuckoo Filters: An Alternative to Bloom Filters
 
 [Cuckoo Filters][cuckoo-wiki] (see [paper][cuckoo-paper]) provide a useful
-improvement over bloom filters for our use case, as they only require two read
-operations for a single-value lookup - bloom filters require a number of
+improvement over Bloom filters for our use case, as they only require two read
+operations for a single-value lookup - Bloom filters require a number of
 lookups that depends on the desired false-positive rate (you can try out a
-bloom filter calculator over [here][hurst-bloom]). There's a also an
-introduction to Cuckoo Filters with some animations on
-[brilliant.org][cuckoo-brilliant]. 
+Bloom filter calculator over [here][hurst-bloom]). There's also an introduction
+to Cuckoo Filters with some animations on [brilliant.org][cuckoo-brilliant]. 
 
-We will use a small variation on the original Cuckoo Filter implementation by
-allowing to grow the number of slots per bucket, which enables us to encode
-sets of different sizes using the same number of buckets. This is necessary in
-case the parquet files to index are varying in size or number of distinct
-values in the indexed column.
+We will use a small variation on the original Cuckoo Filter implementation that
+allows us to grow the number of slots per bucket, to encode sets of different
+sizes using the same number of buckets. This is necessary in case the Parquet
+files to index are varying in size or number of distinct values in the indexed
+column.
 
 [cuckoo-wiki]: https://en.wikipedia.org/wiki/Cuckoo_filter
 [cuckoo-paper]: https://www.cs.cmu.edu/~binfan/papers/conext14_cuckoofilter.pdf
@@ -154,7 +154,7 @@ lead to expected occupancies of `50%, 84%, 95%`, and `98` respectively.
 ![Number of buckets impact $h_1(x)$ and $h_2(x)$](../../images/partition-index-intro/cuckoo_multiple_unaligned.png)
 _Multiple Cuckoo Filters of different size access different buckets for the same value_
 
-Creating an optimal Cuckoo Filter for for several sets of values of different
+Creating an optimal Cuckoo Filter for several sets of values of different
 sizes leads to a different choice in the number of buckets in each filter, as
 depicted above. The hash function that selects candidate buckets depends on the
 number of buckets, resulting in different selected buckets for the different
@@ -164,7 +164,7 @@ filters, even when looking up the same value `x`.
 
 The previous image shows how evaluating a number of Cuckoo Filters for
 partitions of different sizes leads to all the problems we initially described
-for the bloom filter approach: we have to search for a given fingerprint in a
+for the Bloom filter approach: we have to search for a given fingerprint in a
 bunch of mostly random memory locations - trying this with index data stored on
 disk will not perform well, and we'll have to compute hash functions $h_1$ and
 $h_2$ for every filter individually.
@@ -240,10 +240,10 @@ We store two principal types of data:
 While the index data remains on disk, the partition metadata resides in-memory,
 and clocks in at `25` bytes per partition for the benchmark implementation. The
 actual size depends on how you want your partition to be identified. Storing
-the path or URI to a parquet file requires more space than a storage layout
+the path or URI to a Parquet file requires more space than a storage layout
 where a UUID is sufficient to identify a partition.
 
-We only benchmark the index itself - there's no actual parquet files with real
+We only benchmark the index itself - there's no actual Parquet files with real
 data, and artificial data is crafted in a way that allows recreating the entire
 large dataset from a small set of parameters: the number of partitions `p`, the
 number of elements per partition `e`, the number of buckets `b`. A single
@@ -493,7 +493,7 @@ After explaining my idea to a coworker, he pointed me to [COBS][cobs] - compact
 bit-sliced signature index. The authors are using a very similar approach, but
 there's a few noteworthy differences.
 
-COBS uses bloom filters in the context of finding DNA sequences in a large body
+COBS uses Bloom filters in the context of finding DNA sequences in a large body
 of samples. A query typically involves a variable-sized subsequence of DNA, and
 indexing happens on _k-mer_ level. Since the actual search involves far longer
 sequences, a search query is translated into a conjunction of many _k-mers_.
@@ -501,15 +501,15 @@ This implies that the false positive rate of the index itself doesn't have to
 be very low, as false positives get weeded out via the conjunction of many
 search terms. In such a scenario, you can get away with just a single hash
 function. This wouldn't be feasible in our scenario: we assume that a query is
-searching for a single value. Using bloom filters for our partition index would
+searching for a single value. Using Bloom filters for our partition index would
 lead to either high false positive rates or a large number of hash functions:
-to achieve a false-positive rate of `1` in `20000`, a bloom filter needs
+to achieve a false-positive rate of `1` in `20000`, a Bloom filter needs
 [`k = 14` hash functions][hurst2], requiring `14` I/O operations to evaluate a
 query.
 
 To save space and incorporate documents (files or partition in our terminology)
-of variable size, bloom filters are not aligned to one specific length.
-Instead, bloom filters are grouped together with other, similarly-sized
+of variable size, Bloom filters are not aligned to one specific length.
+Instead, Bloom filters are grouped together with other, similarly-sized
 documents, resulting in multiple aligned "blocks" of different sizes. This
 reduces the size of the index, but further increases the number of I/O
 operation, because you'd have to perform `k` I/O operations for each block of
@@ -543,7 +543,7 @@ get a lot of back-and-forth with yourself, and it's pretty hard to stop.
 As for the approach itself, I'm interested in feedback - maybe something very
 similar is already built into some query engines? If not, I'd really love to
 to see it materialize as part of a proper query engine. In particular, I'd love
-to see the performance that can be achieved in conjunction with parquet files:
+to see the performance that can be achieved in conjunction with Parquet files:
 Just imagine what levels of performance are possible when combined with the
 techniques described in the Influx Data blog post
 "[Querying Parquet with Millisecond Latency][parquet-ms]".
