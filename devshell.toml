@@ -5,3 +5,7 @@
 [devshell]
 packages = [ "texlive.combined.scheme-full", "pandoc", "jekyll", "ruby", "zlib", "ncurses", "readline", "libyaml" ]
 
+[[commands]]
+name = "serve"
+command = "bundle exec jekyll serve --incremental"
+help = "Serve blog locally on http://localhost:4000"
