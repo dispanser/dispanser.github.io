@@ -14,11 +14,11 @@ tags: [index, bloom filter]
 
 ## Summary
 
-In this blog post, we present an fast, efficient way to accelerate point
-queries on large Parquet-based tables consisting of millions of files. By
-utilizing aligned arrays of Cuckoo Filters, we aim to identify files that
-likely have the data you're looking for, using only two read operations, while
-keeping all your index data on disk.
+In this blog post, we present an efficient way to accelerate point queries on
+large Parquet-based tables consisting of millions of files. By utilizing
+aligned arrays of Cuckoo Filters, we aim to identify files that likely have the
+data you're looking for, using only two read operations, while keeping all your
+index data on disk.
 
 Depending on the latency of the underlying storage layer, we are able to
 identify relevant data files in milliseconds, enabling a query engine to only
