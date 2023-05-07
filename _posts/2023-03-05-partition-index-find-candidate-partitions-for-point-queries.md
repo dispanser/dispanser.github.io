@@ -90,17 +90,18 @@ come to expect from "in-memory" operations.
 
 [parquet-bloom]: https://github.com/apache/parquet-format/blob/master/BloomFilter.md
 [databricks-bloom]: https://docs.databricks.com/optimizations/bloom-filters.html
+[orc-index]: https://orc.apache.org/docs/indexes.html
 [wiki-bloom]: https://en.wikipedia.org/wiki/Bloom_filter
 [wiki-amq]: https://en.wikipedia.org/wiki/Approximate_Membership_Query_Filter
 [hurst-bloom]: https://hur.st/bloomfilter/?n=1000000&p=1.0e-3&m=&k=
 
 ## A Better Approach
 
-Can we do better? We want to have the performance of the in-memory bloom
-filters, but we don't want to keep the index data in memory; we need a data
-structure that allows us to perform approximate membership queries for a single
-value on many sets simultaneously, while keeping the index data on disk and
-avoiding a separate read operation for each individual set.
+Ideally, we want to have the performance of in-memory bloom filters, but we
+don't want to keep the index data in memory; we need a data structure that
+allows us to perform approximate membership queries for a single value on many
+sets simultaneously, while keeping the index data on disk and avoiding a
+separate read operation for each individual set.
 
 > The motivational examples start from a set of Parquet files. When the index
 is stored independently from the indexed data, it is not necessary to limit
@@ -233,7 +234,7 @@ We store two principal types of data:
    separate file per bucket.
 2. Partition metadata, which contains a partition identifier, a `removed` flag
    and, crucially, the bucket size of that partition. The latter is important
-   becaues you need to be able to restore which partition a matching fingerprint
+   because you need to be able to restore which partition a matching fingerprint
    actually belongs to - the information "we have a matching fingerprint in
    position `3192`" is not sufficient.
 
@@ -317,7 +318,7 @@ run, but doesn't quite fit the larger index sizes - and its effect is
 successively getting smaller the larger the data set.
 {: .prompt-info} 
 
-Let's look into how varying the number of buckets effects query performance.
+Let's look into how varying the number of buckets affects query performance.
 
 ### Number of Buckets
 
@@ -383,7 +384,7 @@ partitions of each size you typically expect.
 It doesn't seem promising to execute a single query on multiple CPU cores:
 while it's in theory possible to walk over both bucket's in parallel, or even
 split a bucket into smaller chunks, in reality the most expensive part is
-reading the data, in particluar when data is persisted to typical cloud
+reading the data, in particular when data is persisted to typical cloud
 storage.
 
 However, it should be easy to concurrently execute multiple queries. In this
@@ -405,7 +406,7 @@ _Concurrent Query Execution: Where's my scale?_
 
 This does not look good - query latency is not constant when executing multiple
 queries at the same time. To understand what's going on, let's look at
-the other two the chart: queries per second and read bytes per second.
+the other two charts: queries per second and read bytes per second.
 Both are just different views into the same data, as each query reads exactly
 the same amount of data. However, this tells us that the number of queries is
 constant when running on two or more threads, and we might actually reach the
@@ -463,7 +464,7 @@ fingerprint width to `16` bits.
 Initially, we modelled the bucket data as one long, consecutive stream of
 bytes, writing data for successive buckets back to back. This layout makes it
 impossible to append additional files to the index structure, as there is
-simply no space between buckets to accomodate for the newly added fingerprints.
+simply no space between buckets to accommodate for the newly added fingerprints.
 
 But this is not really necessary: buckets are always read independently, so it
 makes perfect sense to store the data for individual buckets in separate blobs
@@ -473,7 +474,7 @@ partition requires appending the data for each bucket to its associated blob.
 This is not a cheap operation; we're appending a few fingerprints to thousands
 of different places. The behavior is somewhat expected: we optimized the data
 layout to serve queries with the minimum possible number of reads, and data is
-written predominatly by an orthogonal dimension (buckets vs partitions).
+written predominantly by an orthogonal dimension (buckets vs partitions).
 
 We don't have a good solution for that problem: In our prototype, multiple
 writes are buffered to amortize writing bucket data. If the indexed data
